@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MF STORE Top Up</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        .container {
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .page-content {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .game-card.selected, .option-card.selected, .payment-card.selected, .bank-card.selected {
+            border-color: #a855f7;
+            box-shadow: 0 0 15px rgba(168, 85, 247, 0.5);
+            transform: scale(1.05);
+        }
+        .faq-item.active .faq-content {
+            max-height: 500px !important;
+        }
+        .faq-item.active .fa-chevron-down {
+            transform: rotate(180deg);
+        }
+        .selected-item {
+            background-color: #5b21b6;
+        }
+        .selected-bank {
+            border-color: #a855f7;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+        }
+        .social-menu {
+            transition: all 0.3s ease-in-out;
+            transform: scale(0);
+            transform-origin: bottom right;
+        }
+        .social-menu.open {
+            transform: scale(1);
+        }
+    </style>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, getDocs, deleteDoc, onSnapshot, collection, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        setLogLevel('debug');
+
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
+        let db, auth;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const modal = document.getElementById('messageModal');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalCloseBtn = document.getElementById('closeModalBtn');
+        const userIdDisplay = document.getElementById('userIdDisplay');
+        const transactionsList = document.getElementById('transactionsList');
+
+        function showMessageModal(message) {
+            modalMessage.textContent = message;
+            modal.classList.remove('hidden');
+        }
+
+        modalCloseBtn.addEventListener('click', () => {
+            modal.classList.add('hidden');
+        });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                await signInAnonymously(auth);
+                console.log("Berhasil masuk secara anonim.");
+
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        const userId = user.uid;
+                        console.log("Authenticated with user ID:", userId);
+                        userIdDisplay.textContent = `ID Pengguna: ${userId}`;
+                        
+                        const cartRef = collection(db, 'artifacts', appId, 'users', userId, 'cartItems');
+                        const ordersRef = collection(db, 'artifacts', appId, 'users', userId, 'orders');
+
+                        const deleteItem = async (docId) => {
+                            try { await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'cartItems', docId)); } catch (error) { console.error("Error removing document: ", error); }
+                        };
+                        
+                        const simulatePayment = async () => {
+                            if (!selectedGame || !selectedNominal || !usernameInput.value.trim() || !selectedPayment) {
+                                showMessageModal('Silakan pilih game, nominal, ID pengguna, dan metode pembayaran.');
+                                return;
+                            }
+                            if (selectedPayment.id === 'bank-transfer' && !selectedBank) {
+                                showMessageModal('Silakan pilih bank untuk transfer.');
+                                return;
+                            }
+
+                            const finalPrice = selectedNominal.price * (1 - currentDiscount);
+                            const item = {
+                                game: selectedGame.title,
+                                nominal: selectedNominal.diamonds,
+                                price: finalPrice,
+                                username: usernameInput.value.trim(),
+                                paymentMethod: selectedPayment.name,
+                                bank: selectedBank ? selectedBank.name : null,
+                                timestamp: new Date().toISOString(),
+                                voucherApplied: currentDiscount > 0
+                            };
+                            
+                            try {
+                                await addDoc(ordersRef, item);
+                                showMessageModal(`Pembayaran berhasil! Diamond ${item.nominal} untuk ${item.game} akan segera diproses.`);
+                                // Tambahkan transaksi contoh ke riwayat
+                                addSampleTransaction(item);
+                            } catch (error) {
+                                console.error("Error adding document: ", error);
+                            }
+                        };
+                        
+                        const checkout = async () => {
+                            try {
+                                const cartItemsSnapshot = await getDocs(cartRef);
+                                if (cartItemsSnapshot.empty) {
+                                    showMessageModal('Keranjang kosong, tidak ada yang bisa di-checkout.');
+                                    return;
+                                }
+                                cartItemsSnapshot.forEach(async (doc) => {
+                                    await addDoc(ordersRef, doc.data());
+                                    await deleteDoc(doc.ref);
+                                });
+                                showMessageModal('Checkout berhasil! Item pesanan telah dipindahkan.');
+                                cartModal.classList.add('hidden');
+                            } catch (error) {
+                                console.error("Error during checkout: ", error);
+                            }
+                        };
+
+                        const updateCartDisplay = () => {
+                            onSnapshot(query(cartRef), (snapshot) => {
+                                cartItemsContainer.innerHTML = '';
+                                let total = 0;
+                                if (snapshot.empty) {
+                                    cartItemsContainer.innerHTML = '<p class="text-gray-400 text-center">Keranjang kosong.</p>';
+                                } else {
+                                    snapshot.forEach(doc => {
+                                        const item = doc.data();
+                                        const docId = doc.id;
+                                        const itemElement = document.createElement('div');
+                                        itemElement.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'bg-gray-800', 'rounded-md', 'mb-2');
+                                        itemElement.innerHTML = `
+                                            <div>
+                                                <p class="font-semibold text-white">${item.game}</p>
+                                                <p class="text-sm text-gray-400">${item.nominal} Diamonds</p>
+                                                <p class="text-sm text-gray-400">ID: ${item.username}</p>
+                                            </div>
+                                            <div class="flex items-center space-x-2">
+                                                <p class="font-bold text-purple-400">Rp ${item.price.toLocaleString('id-ID')}</p>
+                                                <button class="delete-btn bg-red-600 hover:bg-red-700 text-white p-1 rounded-full text-xs" data-doc-id="${docId}">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        `;
+                                        cartItemsContainer.appendChild(itemElement);
+                                        total += item.price;
+                                    });
+                                    document.querySelectorAll('.delete-btn').forEach(button => {
+                                        button.addEventListener('click', (e) => {
+                                            const docId = e.target.closest('.delete-btn').getAttribute('data-doc-id');
+                                            if (docId) deleteItem(docId);
+                                        });
+                                    });
+                                }
+                                cartTotalElement.textContent = `Total: Rp ${total.toLocaleString('id-ID')}`;
+                                cartCountElement.textContent = snapshot.size;
+                            });
+                        };
+
+                        // Fungsi untuk menambahkan transaksi contoh (ke riwayat)
+                        const addSampleTransaction = async (item) => {
+                            try {
+                                const transactionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/transactions`);
+                                await addDoc(transactionsCollectionRef, item);
+                                console.log("Transaksi berhasil ditambahkan ke riwayat.");
+                            } catch (e) {
+                                console.error("Kesalahan saat menambahkan dokumen: ", e);
+                            }
+                        };
+                        
+                        // Fungsi untuk merender transaksi ke UI
+                        const renderTransactions = (transactions) => {
+                            transactionsList.innerHTML = '';
+                            if (transactions.length === 0) {
+                                transactionsList.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">Tidak ada riwayat transaksi.</td></tr>';
+                            } else {
+                                const sortedTransactions = transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                                sortedTransactions.forEach(transaction => {
+                                    const row = document.createElement('tr');
+                                    row.classList.add('bg-gray-800/50', 'backdrop-blur-sm', 'border-b', 'border-gray-700/50');
+                                    row.innerHTML = `
+                                        <td class="py-3 px-6 text-white">${transaction.game}</td>
+                                        <td class="py-3 px-6 text-gray-400">${transaction.nominal} <i class="fas fa-gem text-purple-400"></i></td>
+                                        <td class="py-3 px-6 text-purple-400">Rp ${transaction.price.toLocaleString('id-ID')}</td>
+                                        <td class="py-3 px-6 text-gray-500">${new Date(transaction.timestamp).toLocaleDateString('id-ID')}</td>
+                                    `;
+                                    transactionsList.appendChild(row);
+                                });
+                            }
+                        };
+
+                        // Mengatur listener real-time untuk riwayat transaksi
+                        const setupTransactionListener = () => {
+                            const transactionsCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/transactions`);
+                            const q = query(transactionsCollectionRef);
+
+                            onSnapshot(q, (querySnapshot) => {
+                                const transactions = [];
+                                querySnapshot.forEach((doc) => {
+                                    transactions.push({ id: doc.id, ...doc.data() });
+                                });
+                                renderTransactions(transactions);
+                            }, (error) => {
+                                console.error("Kesalahan saat memuat data: ", error);
+                            });
+                        };
+
+                        buyButton.addEventListener('click', simulatePayment);
+                        checkoutButton.addEventListener('click', checkout);
+                        updateBuyButtonState();
+                        setupTransactionListener();
+
+                    } else {
+                        console.log("Tidak terotentikasi. Fitur keranjang akan dinonaktifkan.");
+                        cartItemsContainer.innerHTML = '<p class="text-gray-400 text-center">Keranjang kosong. Fitur ini membutuhkan koneksi ke Firebase.</p>';
+                        cartCountElement.textContent = 0;
+                        cartTotalElement.textContent = `Total: Rp 0`;
+                        userIdDisplay.textContent = 'Masuk untuk melihat riwayat';
+                        transactionsList.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">Silakan login untuk melihat riwayat transaksi.</td></tr>';
+                    }
+                });
+
+            } catch (error) {
+                console.error("Kesalahan inisialisasi Firebase:", error);
+            }
+            
+             const gamesData = [
+                { id: 'mlbb', title: 'Mobile Legends', image: 'https://cdn.kibrispdr.org/data/110/download-logo-mobile-legend-hd-23.jpg', action: 'Top Up', category: 'moba', new: true },
+                { id: 'valorant', title: 'Valorant', image: 'https://wallpapers.com/images/hd/4k-hd-valorant-apq88vup55ep5pvt.jpg', action: 'Top Up', category: 'fps', new: false },
+                { id: 'genshin', title: 'Genshin Impact', image: 'https://wallpapers.com/images/featured-full/genshin-impact-wlq3ykrxbaoadjow.jpg', action: 'Top Up', category: 'rpg', new: false },
+                { id: 'codm', title: 'Call of Duty', image: 'https://wallpapers.com/images/high/call-of-duty-mobile-logo-black-background-slr1ytq3vlpgjek2.webp', action: 'Top Up', category: 'fps', new: false },
+                { id: 'freefire', title: 'Free Fire', image: 'https://hybrid.co.id/wp-content/uploads/2022/07/43fb6df4132b51d4542c22c281cb6f08_6553b7747185670b9c7ed5fa51404a1ajpg-1536x939.jpg', action: 'Top Up', category: 'fps', new: false },
+                { id: 'aov', title: 'Arena of Valor', image: 'https://scontent.fupg5-1.fna.fbcdn.net/v/t1.6435-9/33831992_2298533113491993_7917201271583408128_n.jpg?_nc_cat=104&ccb=1-7&_nc_sid=cf85f3&_nc_ohc=tEh3d1ovodEQ7kNvwFs268K&_nc_oc=AdmDhMXF8HMrMPm3KntcpcwKUhbDe6WRr4XaTara7kepjCMgHqU02JGCs8ahQtYJ3RtitykYVqewqy_2tuWFvnJD&_nc_zt=23&_nc_ht=scontent.fupg5-1.fna&_nc_gid=CPeSg6evL1oFwOGMuA1KOQ&oh=00_AfbN7bx1s9b72DjOlKHZ2eW81YzHePfJKS5zNUh08l_QjQ&oe=68F8EA51', action: 'Top Up', category: 'moba', new: false }
+            ];
+
+            const topUpOptions = [
+                { diamonds: 50, price: 10000, id: 'opt1' },
+                { diamonds: 100, price: 20000, id: 'opt2' },
+                { diamonds: 250, price: 50000, id: 'opt3' },
+                { diamonds: 500, price: 100000, id: 'opt4' },
+                { diamonds: 1000, price: 200000, id: 'opt5' },
+                { diamonds: 2000, price: 400000, id: 'opt6' }
+            ];
+
+            const paymentMethods = [
+                { id: 'qris', name: 'QRIS', icon: 'https://cdn.icon-icons.com/icons2/3392/PNG/512/qris_logo_icon_214620.png' },
+                { id: 'dana', name: 'DANA', icon: 'https://upload.wikimedia.org/wikipedia/commons/7/70/DANA_logo.png' },
+                { id: 'bank-transfer', name: 'Bank Transfer', icon: 'https://cdn.icon-icons.com/icons2/2361/PNG/512/bank_transfer_icon_143003.png' }
+            ];
+
+            const bankOptions = [
+                { id: 'bca', name: 'BCA', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg' },
+                { id: 'bri', name: 'BRI', logo: 'https://upload.wikimedia.org/wikipedia/id/thumb/e/e9/Bank_Rakyat_Indonesia.svg/1200px-Bank_Rakyat_Indonesia.svg.png' },
+                { id: 'mandiri', name: 'Mandiri', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Bank_Mandiri_logo_2016.svg/1200px-Bank_Mandiri_logo_2016.svg.png' },
+                { id: 'bni', name: 'BNI', logo: 'https://upload.wikimedia.org/wikipedia/id/thumb/b/be/BNI_logo.svg/1200px-BNI_logo.svg.png' }
+            ];
+
+            const vouchers = { 'SULTAN20': 0.20 };
+
+            const pages = document.querySelectorAll('.page-content');
+            const navLinks = document.querySelectorAll('.nav-link');
+            const gamesGrid = document.getElementById('gamesGrid');
+            const topUpGamesGrid = document.getElementById('topUpGamesGrid');
+            const topupHeader = document.getElementById('topupHeader');
+            const topupForm = document.getElementById('topupForm');
+            const topUpOptionsContainer = document.getElementById('topUpOptions');
+            const usernameInput = document.getElementById('username');
+            const buyButton = document.getElementById('buyButton');
+            const cartButton = document.getElementById('cartButton');
+            const cartModal = document.getElementById('cartModal');
+            const closeCartModal = document.getElementById('closeCartModal');
+            const cartItemsContainer = document.getElementById('cartItems');
+            const cartTotalElement = document.getElementById('cartTotal');
+            const cartCountElement = document.getElementById('cartCount');
+            const checkoutButton = document.getElementById('checkoutButton');
+            const loginButton = document.getElementById('loginButton');
+            const loginModal = document.getElementById('loginModal');
+            const closeLoginModal = document.getElementById('closeLoginModal');
+            const googleSignInButton = document.getElementById('googleSignInButton');
+            const loginMessage = document.getElementById('loginMessage');
+            const searchInputMobile = document.getElementById('searchInputMobile');
+            const categoryLinks = document.querySelectorAll('.category-link');
+            const voucherInput = document.getElementById('voucherInput');
+            const applyVoucherButton = document.getElementById('applyVoucherButton');
+            const voucherMessage = document.getElementById('voucherMessage');
+            const statusMessage = document.getElementById('statusMessage');
+            const paymentOptionsContainer = document.getElementById('paymentOptions');
+            const bankOptionsContainer = document.getElementById('bankOptions');
+            const socialMenuButton = document.getElementById('socialMenuButton');
+            const socialMenu = document.getElementById('socialMenu');
+
+            let selectedGame = null;
+            let selectedNominal = null;
+            let selectedPayment = null;
+            let selectedBank = null;
+            let currentDiscount = 0;
+
+            const showMessage = (message, color) => {
+                statusMessage.textContent = message;
+                statusMessage.classList.remove('hidden', 'bg-green-600', 'bg-red-600');
+                statusMessage.classList.add(`bg-${color}-600`, 'p-3', 'rounded-lg', 'font-semibold', 'text-white', 'text-center', 'mb-4');
+                setTimeout(() => {
+                    statusMessage.classList.add('hidden');
+                }, 5000);
+            };
+
+            const showPage = (pageId) => {
+                pages.forEach(page => {
+                    page.classList.add('hidden');
+                });
+                const targetPage = document.getElementById(pageId);
+                if (targetPage) {
+                    targetPage.classList.remove('hidden');
+                    mobileMenu.classList.add('hidden');
+                }
+            };
+            
+            navLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    showPage(e.target.getAttribute('data-page'));
+                });
+            });
+
+            const mobileMenuButton = document.getElementById('mobileMenuButton');
+            const mobileMenu = document.getElementById('mobileMenu');
+
+            mobileMenuButton.addEventListener('click', () => {
+                mobileMenu.classList.toggle('hidden');
+            });
+
+            const renderGames = (games, container) => {
+                if (!container) {
+                    console.error('Container for games not found!');
+                    return;
+                }
+                container.innerHTML = '';
+                games.forEach(game => {
+                    const gameCard = document.createElement('div');
+                    gameCard.classList.add('game-card', 'rounded-xl', 'overflow-hidden', 'shadow-lg', 'bg-gray-800/50', 'backdrop-blur-sm', 'border', 'border-gray-700/50', 'flex', 'flex-col', 'items-center', 'text-center', 'p-4', 'cursor-pointer');
+                    gameCard.setAttribute('data-id', game.id);
+                    gameCard.innerHTML = `
+                        <img src="${game.image}" alt="${game.title}" class="w-full h-auto rounded-lg mb-4">
+                        <h3 class="text-white font-bold text-lg">${game.title}</h3>
+                        <p class="text-sm text-gray-400 mb-2">${game.action}</p>
+                        ${game.new ? `<span class="bg-purple-600 text-white text-xs font-semibold px-2 py-1 rounded-full">Event Baru</span>` : ''}
+                    `;
+                    gameCard.addEventListener('click', () => {
+                        selectedGame = game;
+                        showPage('top-up-page');
+                        topupHeader.textContent = `Top Up ${game.title}`;
+                        topupForm.classList.remove('hidden');
+                        topupForm.scrollIntoView({ behavior: 'smooth' });
+                        updateBuyButtonState();
+                    });
+                    container.appendChild(gameCard);
+                });
+            };
+
+            categoryLinks.forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    categoryLinks.forEach(l => l.classList.remove('active'));
+                    link.classList.add('active');
+                    const category = link.getAttribute('data-category');
+                    let filteredGames = gamesData;
+                    if (category !== 'all') {
+                        filteredGames = gamesData.filter(g => g.category === category);
+                    }
+                    renderGames(filteredGames, topUpGamesGrid);
+                });
+            });
+
+            const performSearch = (e) => {
+                const query = e.target.value.toLowerCase();
+                const filteredGames = gamesData.filter(game => game.title.toLowerCase().includes(query));
+                renderGames(filteredGames, topUpGamesGrid);
+            };
+            searchInputMobile.addEventListener('input', performSearch);
+
+            const renderTopUpOptions = () => {
+                 topUpOptionsContainer.innerHTML = '';
+                 topUpOptions.forEach(option => {
+                    const optionCard = document.createElement('div');
+                    optionCard.classList.add('option-card', 'bg-gray-800/50', 'rounded-lg', 'p-4', 'cursor-pointer', 'flex', 'flex-col', 'justify-between', 'items-center', 'text-center', 'select-none');
+                    optionCard.setAttribute('data-id', option.id);
+                    optionCard.innerHTML = `
+                        <span class="font-bold text-lg">${option.diamonds} <i class="fas fa-gem text-purple-400"></i></span>
+                        <span class="text-sm text-gray-300">Rp ${option.price.toLocaleString('id-ID')}</span>
+                    `;
+                    optionCard.addEventListener('click', () => {
+                        document.querySelectorAll('#topUpOptions .option-card').forEach(card => card.classList.remove('selected'));
+                        optionCard.classList.add('selected');
+                        selectedNominal = option;
+                        updateBuyButtonState();
+                    });
+                    topUpOptionsContainer.appendChild(optionCard);
+                });
+            }
+
+            const renderPaymentMethods = () => {
+                paymentOptionsContainer.innerHTML = '';
+                paymentMethods.forEach(method => {
+                    const paymentCard = document.createElement('div');
+                    paymentCard.classList.add('payment-card', 'bg-gray-800/50', 'rounded-lg', 'p-4', 'cursor-pointer', 'flex', 'flex-col', 'justify-between', 'items-center', 'text-center', 'select-none');
+                    paymentCard.setAttribute('data-id', method.id);
+                    paymentCard.innerHTML = `
+                        <img src="${method.icon}" alt="${method.name} Logo" class="w-12 h-12 object-contain mb-2">
+                        <span class="font-bold text-lg">${method.name}</span>
+                    `;
+                    paymentCard.addEventListener('click', () => {
+                        document.querySelectorAll('#paymentOptions .payment-card').forEach(card => card.classList.remove('selected'));
+                        paymentCard.classList.add('selected');
+                        selectedPayment = method;
+                        selectedBank = null;
+                        if (method.id === 'bank-transfer') {
+                            bankOptionsContainer.classList.remove('hidden');
+                        } else {
+                            bankOptionsContainer.classList.add('hidden');
+                        }
+                        document.querySelectorAll('#bankOptions .bank-card').forEach(card => card.classList.remove('selected', 'selected-item'));
+                        updateBuyButtonState();
+                    });
+                    paymentOptionsContainer.appendChild(paymentCard);
+                });
+            }
+
+            const renderBankOptions = () => {
+                bankOptionsContainer.innerHTML = '';
+                bankOptions.forEach(bank => {
+                    const bankCard = document.createElement('div');
+                    bankCard.classList.add('bank-card', 'bg-gray-800/50', 'rounded-lg', 'p-4', 'cursor-pointer', 'flex', 'items-center', 'space-x-4');
+                    bankCard.setAttribute('data-id', bank.id);
+                    bankCard.innerHTML = `
+                        <img src="${bank.logo}" alt="${bank.name} Logo" class="w-10 h-10 object-contain">
+                        <span class="font-bold text-lg">${bank.name}</span>
+                    `;
+                    bankCard.addEventListener('click', () => {
+                        document.querySelectorAll('#bankOptions .bank-card').forEach(card => card.classList.remove('selected', 'selected-item'));
+                        bankCard.classList.add('selected', 'selected-item');
+                        selectedBank = bank;
+                        updateBuyButtonState();
+                    });
+                    bankOptionsContainer.appendChild(bankCard);
+                });
+            }
+
+            applyVoucherButton.addEventListener('click', () => {
+                const voucherCode = voucherInput.value.toUpperCase();
+                if (vouchers[voucherCode]) {
+                    currentDiscount = vouchers[voucherCode];
+                    voucherMessage.textContent = `Voucher berhasil diterapkan! Diskon ${currentDiscount * 100}%`;
+                    voucherMessage.classList.remove('hidden', 'text-red-400');
+                    voucherMessage.classList.add('text-green-400');
+                } else {
+                    currentDiscount = 0;
+                    voucherMessage.textContent = `Voucher tidak valid.`;
+                    voucherMessage.classList.remove('hidden', 'text-green-400');
+                    voucherMessage.classList.add('text-red-400');
+                }
+            });
+
+            const sliderWrapper = document.querySelector('.slider-wrapper');
+            let slideIndex = 0;
+            const totalSlides = sliderWrapper.children.length;
+            const updateSlider = () => {
+                sliderWrapper.style.transform = `translateX(-${slideIndex * 100}%)`;
+            };
+            const autoSlide = () => {
+                slideIndex = (slideIndex + 1) % totalSlides;
+                updateSlider();
+            };
+            setInterval(autoSlide, 5000);
+
+            const faqItems = document.querySelectorAll('.faq-item');
+            faqItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    item.classList.toggle('active');
+                    const content = item.querySelector('.faq-content');
+                    if (item.classList.contains('active')) {
+                        content.style.maxHeight = content.scrollHeight + 'px';
+                    } else {
+                        content.style.maxHeight = '0';
+                    }
+                });
+            });
+
+            const updateBuyButtonState = () => {
+                const isUsernameValid = usernameInput.value.trim() !== '';
+                let isPaymentValid = selectedPayment !== null;
+                if (selectedPayment && selectedPayment.id === 'bank-transfer') {
+                    isPaymentValid = selectedBank !== null;
+                }
+                buyButton.disabled = !(selectedGame && selectedNominal && isUsernameValid && isPaymentValid);
+                if (buyButton.disabled) {
+                    buyButton.classList.add('opacity-50', 'cursor-not-allowed');
+                } else {
+                    buyButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            };
+            usernameInput.addEventListener('input', updateBuyButtonState);
+            
+            loginButton.addEventListener('click', () => {
+                loginModal.classList.remove('hidden');
+            });
+            closeLoginModal.addEventListener('click', () => {
+                loginModal.classList.add('hidden');
+            });
+            googleSignInButton.addEventListener('click', () => {
+                loginMessage.classList.remove('hidden');
+            });
+            
+            socialMenuButton.addEventListener('click', () => {
+                socialMenu.classList.toggle('open');
+            });
+
+            const popularGames = gamesData.slice(0, 2);
+            renderGames(popularGames, gamesGrid);
+            renderGames(gamesData, topUpGamesGrid);
+            renderTopUpOptions();
+            renderPaymentMethods();
+            renderBankOptions();
+            updateBuyButtonState();
+        });
+    </script>
+<body class="bg-gray-900 text-gray-300 font-sans leading-relaxed">
+
+    <!-- Header -->
+    <header class="bg-gray-800/50 backdrop-blur-sm fixed top-0 left-0 right-0 z-40">
+        <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <a href="#" class="flex items-center space-x-2 text-white text-2xl font-bold">
+                <i class="fas fa-gem text-purple-400"></i>
+                <span>MF STORE Top Up</span>
+                <img src="icon.png" alt="LOGO MF STORE" class="w-10 h-10 rounded-full">
+                <span>
+            </a>
+            <div class="flex items-center space-x-4">
+                <button id="cartButton" class="relative bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full transition-transform transform hover:scale-110 hidden">
+                    <i class="fas fa-shopping-cart text-lg"></i>
+                    <span id="cartCount" class="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-red-100 transform translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full">0</span>
+                </button>
+                <button id="loginButton" class="text-white text-sm bg-purple-600 hover:bg-purple-700 py-2 px-4 rounded-full transition-transform transform hover:scale-105">
+                    Masuk / Daftar
+                </button>
+                <button id="mobileMenuButton" class="text-white text-2xl focus:outline-none lg:hidden">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+            <div id="desktopMenu" class="hidden lg:flex space-x-6 text-gray-400 font-medium">
+                <a href="#" class="nav-link hover:text-purple-400 transition-colors duration-200" data-page="home-page">Beranda</a>
+                <a href="#" class="nav-link hover:text-purple-400 transition-colors duration-200" data-page="top-up-page">Top Up</a>
+                <a href="#" class="nav-link hover:text-purple-400 transition-colors duration-200" data-page="faq-page">FAQ</a>
+                <a href="#" class="nav-link hover:text-purple-400 transition-colors duration-200" data-page="transaction-history-page">Riwayat Transaksi</a>
+            </div>
+        </nav>
+        <!-- Menu Mobile -->
+        <div id="mobileMenu" class="bg-gray-800/80 backdrop-blur-md px-4 pt-2 pb-4 hidden">
+            <div class="relative mb-4">
+                <input type="text" id="searchInputMobile" placeholder="Cari Game..." class="w-full bg-gray-700/50 text-white rounded-full pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-400">
+                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+            </div>
+            <a href="#" class="nav-link block py-2 text-white hover:text-purple-400" data-page="home-page">Beranda</a>
+            <a href="#" class="nav-link block py-2 text-white hover:text-purple-400" data-page="top-up-page">Top Up</a>
+            <a href="#" class="nav-link block py-2 text-white hover:text-purple-400" data-page="faq-page">FAQ</a>
+            <a href="#" class="nav-link block py-2 text-white hover:text-purple-400" data-page="transaction-history-page">Riwayat Transaksi</a>
+        </div>
+    </header>
+
+    <main class="pt-24 pb-8">
+        <!-- Notifikasi Status -->
+        <div class="container mx-auto px-4">
+            <div id="statusMessage" class="hidden"></div>
+        </div>
+
+        <!-- Home Page -->
+        <div id="home-page" class="page-content active">
+            <div class="container mx-auto px-4 py-8">
+                <!-- Promo Slider yang diperbarui -->
+                <section class="relative overflow-hidden w-full rounded-2xl mb-12 shadow-lg h-72">
+                    <div class="slider-wrapper flex transition-transform duration-700 ease-in-out h-full">
+                        <div class="flex-shrink-0 w-full h-full rounded-2xl flex items-center justify-center">
+                            <img src="image/gambar slider1.jpg" alt="" class="w-full h-full object-cover rounded-2xl">
+                        </div>
+                        <div class="flex-shrink-0 w-full h-full rounded-2xl flex items-center justify-center">
+                            <img src="image/mobile legends slider 2.webp" alt="Promo Bonus Ganda" class="w-full h-full object-cover rounded-2xl">
+                        </div>
+                        <div class="flex-shrink-0 w-full h-full bg-gradient-to-r from-yellow-500 to-orange-500 rounded-2xl flex items-center justify-center p-8">
+                          <img src="image/genshin slider 3.png" alt="Promo Bonus Ganda" class="w-full h-full object-cover rounded-2xl">
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Game Populer -->
+                <section class="mb-12">
+                    <h2 class="text-3xl font-bold text-white mb-6 text-center">Game Populer</h2>
+                    <div id="gamesGrid" class="grid grid-cols-2 gap-6">
+                        <!-- Game cards will be dynamically inserted here -->
+                    </div>
+                </section>
+
+                <!-- Keunggulan -->
+                <section class="mb-12">
+                    <h2 class="text-3xl font-bold text-white mb-8 text-center">Mengapa Pilih Kami?</h2>
+                    <div class="grid grid-cols-1 gap-8 text-center">
+                        <div class="bg-gray-800/50 backdrop-blur-sm p-8 rounded-2xl border border-gray-700/50 shadow-lg">
+                            <i class="fas fa-tachometer-alt text-5xl text-purple-400 mb-4"></i>
+                            <h3 class="font-bold text-xl text-white mb-2">Proses Cepat</h3>
+                            <p class="text-gray-400">Top up dan diamond langsung masuk dalam hitungan detik.</p>
+                        </div>
+                        <div class="bg-gray-800/50 backdrop-blur-sm p-8 rounded-2xl border border-gray-700/50 shadow-lg">
+                            <i class="fas fa-lock text-5xl text-purple-400 mb-4"></i>
+                            <h3 class="font-bold text-xl text-white mb-2">100% Aman</h3>
+                            <p class="text-gray-400">Transaksi aman, tanpa perlu verifikasi yang rumit.</p>
+                        </div>
+                        <div class="bg-gray-800/50 backdrop-blur-sm p-8 rounded-2xl border border-gray-700/50 shadow-lg">
+                            <i class="fas fa-tags text-5xl text-purple-400 mb-4"></i>
+                            <h3 class="font-bold text-xl text-white mb-2">Harga Terbaik</h3>
+                            <p class="text-gray-400">Dapatkan harga paling kompetitif di pasar.</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Top Up Page -->
+        <div id="top-up-page" class="page-content hidden">
+            <div class="container mx-auto px-4 py-8">
+                <h1 class="text-3xl font-bold text-white text-center mb-8">Pilih Game untuk Top Up</h1>
+                <div class="flex justify-center mb-8 space-x-4 overflow-x-auto pb-2">
+                    <a href="#" class="category-link active text-white bg-gray-800/50 px-4 py-2 rounded-full hover:bg-purple-600 transition-colors duration-200 flex-shrink-0" data-category="all">Semua</a>
+                    <a href="#" class="category-link text-white bg-gray-800/50 px-4 py-2 rounded-full hover:bg-purple-600 transition-colors duration-200 flex-shrink-0" data-category="moba">MOBA</a>
+                    <a href="#" class="category-link text-white bg-gray-800/50 px-4 py-2 rounded-full hover:bg-purple-600 transition-colors duration-200 flex-shrink-0" data-category="fps">FPS</a>
+                    <a href="#" class="category-link text-white bg-gray-800/50 px-4 py-2 rounded-full hover:bg-purple-600 transition-colors duration-200 flex-shrink-0" data-category="rpg">RPG</a>
+                </div>
+                <div id="topUpGamesGrid" class="grid grid-cols-2 gap-6 mb-12">
+                    <!-- Game cards will be dynamically inserted here -->
+                </div>
+                
+                <form id="topupForm" class="hidden">
+                    <div class="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl border border-gray-700/50 shadow-lg">
+                        <h2 id="topupHeader" class="text-2xl font-bold text-white mb-6 text-center">Top Up Game</h2>
+                        <h3 class="text-xl font-bold text-white mb-2">1. Masukkan ID Pengguna</h3>
+                        <input type="text" id="username" placeholder="Masukkan ID Pengguna Anda" class="w-full bg-gray-700 text-white rounded-lg p-3 mb-6 focus:outline-none focus:ring-2 focus:ring-purple-400">
+
+                        <h3 class="text-xl font-bold text-white mb-2">2. Pilih Nominal Diamond</h3>
+                        <div id="topUpOptions" class="grid grid-cols-2 gap-4 mb-6">
+                            <!-- Top-up options will be inserted here -->
+                        </div>
+
+                        <h3 class="text-xl font-bold text-white mb-2">3. Pilih Metode Pembayaran</h3>
+                        <div id="paymentOptions" class="grid grid-cols-3 gap-4 mb-6">
+                            <!-- Payment options will be inserted here -->
+                        </div>
+
+                        <div id="bankOptions" class="hidden space-y-4 mb-6">
+                            <h4 class="text-lg font-bold text-white">Pilih Bank</h4>
+                            <!-- Bank options will be inserted here -->
+                        </div>
+
+                        <h3 class="text-xl font-bold text-white mb-2">4. Gunakan Voucher (Opsional)</h3>
+                        <div class="flex mb-6">
+                            <input type="text" id="voucherInput" placeholder="Masukkan kode voucher" class="flex-1 bg-gray-700 text-white rounded-l-lg p-3 focus:outline-none focus:ring-2 focus:ring-purple-400">
+                            <button type="button" id="applyVoucherButton" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-r-lg transition-colors duration-200">Terapkan</button>
+                        </div>
+                        <p id="voucherMessage" class="text-center font-medium mb-6 hidden"></p>
+
+                        <button type="button" id="buyButton" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Bayar Sekarang
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- FAQ Page -->
+        <div id="faq-page" class="page-content hidden">
+            <div class="container mx-auto px-4 py-8">
+                <h1 class="text-3xl font-bold text-white text-center mb-8">Pertanyaan yang Sering Diajukan</h1>
+                <div class="space-y-4">
+                    <div class="faq-item bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-lg p-6 cursor-pointer">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold text-xl text-white">Bagaimana cara top up?</h3>
+                            <i class="fas fa-chevron-down text-white transform transition-transform duration-300"></i>
+                        </div>
+                        <div class="faq-content overflow-hidden max-h-0 transition-all duration-500 ease-in-out">
+                            <p class="text-gray-400 mt-4">Pilih game, masukkan ID pengguna Anda, pilih nominal diamond, pilih metode pembayaran, dan lakukan pembayaran. Diamond akan langsung masuk ke akun Anda.</p>
+                        </div>
+                    </div>
+                    <div class="faq-item bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-lg p-6 cursor-pointer">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold text-xl text-white">Metode pembayaran apa yang tersedia?</h3>
+                            <i class="fas fa-chevron-down text-white transform transition-transform duration-300"></i>
+                        </div>
+                        <div class="faq-content overflow-hidden max-h-0 transition-all duration-500 ease-in-out">
+                            <p class="text-gray-400 mt-4">Kami mendukung berbagai metode pembayaran, termasuk transfer bank, e-wallet (seperti QRIS dan DANA).</p>
+                        </div>
+                    </div>
+                    <div class="faq-item bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-lg p-6 cursor-pointer">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold text-xl text-white">Apakah perlu registrasi?</h3>
+                            <i class="fas fa-chevron-down text-white transform transition-transform duration-300"></i>
+                        </div>
+                        <div class="faq-content overflow-hidden max-h-0 transition-all duration-500 ease-in-out">
+                            <p class="text-gray-400 mt-4">Tidak, Anda dapat langsung top up tanpa perlu mendaftar atau masuk. Namun, untuk menyimpan riwayat pesanan, Anda bisa login.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Riwayat Transaksi Page -->
+        <div id="transaction-history-page" class="page-content hidden">
+            <div class="container mx-auto px-4 py-8">
+                <h1 class="text-3xl font-bold text-white text-center mb-6">Riwayat Transaksi</h1>
+                <p id="userIdDisplay" class="text-sm text-gray-500 text-center mb-6">Masuk untuk melihat riwayat</p>
+                <div class="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 shadow-lg p-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full">
+                            <thead>
+                                <tr class="bg-gray-700 text-left text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                                    <th class="py-3 px-6 rounded-tl-xl">Game</th>
+                                    <th class="py-3 px-6">Nominal</th>
+                                    <th class="py-3 px-6">Harga</th>
+                                    <th class="py-3 px-6 rounded-tr-xl">Tanggal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionsList">
+                                <!-- Data transaksi akan dimuat di sini oleh JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800/50 backdrop-blur-sm py-8">
+        <div class="container mx-auto px-4 text-center text-gray-400">
+            <p>&copy; 2025 MF STORE. Hak Cipta Dilindungi Undang-Undang.</p>
+        </div>
+    </footer>
+
+    <!-- Cart Modal -->
+    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 z-50 flex items-center justify-center p-4 hidden" id="cartModal">
+        <div class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-lg p-6 w-full max-w-md relative">
+            <h2 class="text-2xl font-bold text-white mb-4">Keranjang Belanja</h2>
+            <div class="h-64 overflow-y-auto mb-4" id="cartItems">
+                <!-- Cart items will be dynamically inserted here -->
+            </div>
+            <div class="border-t border-gray-700/50 pt-4 flex justify-between items-center">
+                <p id="cartTotal" class="text-xl font-bold text-white">Total: Rp 0</p>
+                <button id="checkoutButton" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-full transition-colors duration-200">
+                    Checkout
+                </button>
+            </div>
+            <div class="absolute top-4 right-4 text-white text-2xl cursor-pointer" id="closeCartModal">&times;</div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 z-50 flex items-center justify-center p-4 hidden" id="loginModal">
+        <div class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-lg p-6 w-full max-w-sm relative text-center">
+            <h2 class="text-2xl font-bold text-white mb-4">Masuk</h2>
+            <p class="text-gray-400 mb-6">Masuk untuk menyimpan riwayat pesanan Anda.</p>
+            <button id="googleSignInButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full transition-colors duration-200 flex items-center justify-center space-x-2">
+                <i class="fab fa-google"></i>
+                <span>Masuk dengan Google</span>
+            </button>
+            <p id="loginMessage" class="mt-4 text-sm text-yellow-400 hidden">
+                Login hanya tersedia di lingkungan nyata. Fitur ini tidak berfungsi di dalam pratinjau.
+            </p>
+            <div class="absolute top-4 right-4 text-white text-2xl cursor-pointer" id="closeLoginModal">&times;</div>
+        </div>
+    </div>
+
+    <!-- Message Modal -->
+    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 z-50 flex items-center justify-center p-4 hidden" id="messageModal">
+        <div class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-lg p-6 w-full max-w-sm relative text-center">
+            <p id="modalMessage" class="text-white font-semibold mb-4"></p>
+            <button id="closeModalBtn" class="bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-full">Tutup</button>
+        </div>
+    </div>
+    
+    <!-- Floating Social Media Button -->
+    <div class="fixed bottom-6 right-6 z-50">
+        <div id="socialMenu" class="social-menu flex flex-col items-center space-y-4 mb-4">
+            <a href="https://wa.me/6285823302350" target="_blank" class="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full shadow-lg transition-transform transform hover:scale-110">
+                <i class="fab fa-whatsapp text-2xl"></i>
+            </a>
+            <a href="https://instagram.com/averymoo01" target="_blank" class="bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-lg transition-transform transform hover:scale-110">
+                <i class="fab fa-instagram text-2xl"></i>
+            </a>
+            <a href="https://twitter.com/" target="_blank" class="bg-blue-400 hover:bg-blue-500 text-white p-3 rounded-full shadow-lg transition-transform transform hover:scale-110">
+                <i class="fab fa-twitter text-2xl"></i>
+            </a>
+            <a href="https://youtube.com/c/@MIFTAHFARID-n7x" target="_blank" class="bg-red-600 hover:bg-red-700 text-white p-3 rounded-full shadow-lg transition-transform transform hover:scale-110">
+                <i class="fab fa-youtube text-2xl"></i>
+            </a>
+            </a>
+        </div>
+        <button id="socialMenuButton" class="bg-purple-600 hover:bg-purple-700 text-white p-4 rounded-full shadow-2xl transition-transform transform hover:scale-110">
+            <i class="fas fa-comment-dots text-2xl"></i>
+        </button>
+    </div>
+
+</body>
+</html>
