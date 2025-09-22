@@ -71,11 +71,6 @@ const firebaseConfig = {
   measurementId: "G-5WKLD451BN"
 
 };
-        // Initialize Firebase
-
-const app = initializeApp(firebaseConfig);
-
-const analytics = getAnalytics(app);
 
         
         let db, auth;
@@ -275,13 +270,14 @@ const analytics = getAnalytics(app);
             }
             
              const gamesData = [
-                { id: 'mlbb', title: 'Mobile Legends', image: 'https://wallpapers.com/images/high/mobile-legends-logo-over-earth-8ir7z2e4a2enyfzl.webp', action: 'Top Up', category: 'moba', new: true },
+                { id: 'mlbb', title: 'Mobile Legends', image: 'https://cdn.kibrispdr.org/data/110/download-logo-mobile-legend-hd-23.jpg', action: 'Top Up', category: 'moba', new: true },
                 { id: 'valorant', title: 'Valorant', image: 'https://wallpapers.com/images/hd/4k-hd-valorant-apq88vup55ep5pvt.jpg', action: 'Top Up', category: 'fps', new: false },
                 { id: 'genshin', title: 'Genshin Impact', image: 'https://wallpapers.com/images/featured-full/genshin-impact-wlq3ykrxbaoadjow.jpg', action: 'Top Up', category: 'rpg', new: false },
                 { id: 'codm', title: 'Call of Duty', image: 'https://wallpapers.com/images/high/call-of-duty-mobile-logo-black-background-slr1ytq3vlpgjek2.webp', action: 'Top Up', category: 'fps', new: false },
                 { id: 'freefire', title: 'Free Fire', image: 'https://hybrid.co.id/wp-content/uploads/2022/07/43fb6df4132b51d4542c22c281cb6f08_6553b7747185670b9c7ed5fa51404a1ajpg-1536x939.jpg', action: 'Top Up', category: 'fps', new: false },
                 { id: 'aov', title: 'Arena of Valor', image: 'https://scontent.fupg5-1.fna.fbcdn.net/v/t1.6435-9/33831992_2298533113491993_7917201271583408128_n.jpg?_nc_cat=104&ccb=1-7&_nc_sid=cf85f3&_nc_ohc=tEh3d1ovodEQ7kNvwFs268K&_nc_oc=AdmDhMXF8HMrMPm3KntcpcwKUhbDe6WRr4XaTara7kepjCMgHqU02JGCs8ahQtYJ3RtitykYVqewqy_2tuWFvnJD&_nc_zt=23&_nc_ht=scontent.fupg5-1.fna&_nc_gid=CPeSg6evL1oFwOGMuA1KOQ&oh=00_AfbN7bx1s9b72DjOlKHZ2eW81YzHePfJKS5zNUh08l_QjQ&oe=68F8EA51', action: 'Top Up', category: 'moba', new: false }
             ];
+
 
             const topUpOptions = [
                 { diamonds: 50, price: 10000, id: 'opt1' },
@@ -809,24 +805,6 @@ const analytics = getAnalytics(app);
         </div>
     </div>
 
-    <!-- Login Modal -->
-    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 z-50 flex items-center justify-center p-4 hidden" id="loginModal">
-        <div class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-lg p-6 w-full max-w-sm relative text-center">
-            <h2 class="text-2xl font-bold text-white mb-4">Masuk</h2>
-            <p class="text-gray-400 mb-6">Masuk untuk menyimpan riwayat pesanan Anda.</p>
-            </button>
-            </p>
-            <div class="absolute top-4 right-4 text-white text-2xl cursor-pointer" id="closeLoginModal">&times;</div>
-        </div>
-    </div>
-
-    <!-- Message Modal -->
-    <div class="fixed inset-0 bg-gray-900 bg-opacity-80 z-50 flex items-center justify-center p-4 hidden" id="messageModal">
-        <div class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-lg p-6 w-full max-w-sm relative text-center">
-            <p id="modalMessage" class="text-white font-semibold mb-4"></p>
-            <button id="closeModalBtn" class="bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-full">Tutup</button>
-        </div>
-    </div>
     
     <!-- Floating Social Media Button -->
     <div class="fixed bottom-6 right-6 z-50">
@@ -852,6 +830,7 @@ const analytics = getAnalytics(app);
 
 </body>
 </html>
+
 
 
 
