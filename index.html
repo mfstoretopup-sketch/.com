@@ -71,6 +71,11 @@ const firebaseConfig = {
   measurementId: "G-5WKLD451BN"
 
 };
+        // Initialize Firebase
+
+const app = initializeApp(firebaseConfig);
+
+const analytics = getAnalytics(app);
 
         
         let db, auth;
@@ -295,9 +300,9 @@ const firebaseConfig = {
 
             const bankOptions = [
                 { id: 'bca', name: 'BCA', logo: 'https://upload.wikimedia.org/wikipedia/commons/5/5c/Bank_Central_Asia.svg' },
-                { id: 'bri', name: 'BRI', logo: 'https://upload.wikimedia.org/wikipedia/id/thumb/e/e9/Bank_Rakyat_Indonesia.svg/1200px-Bank_Rakyat_Indonesia.svg.png' },
-                { id: 'mandiri', name: 'Mandiri', logo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Bank_Mandiri_logo_2016.svg/1200px-Bank_Mandiri_logo_2016.svg.png' },
-                { id: 'bni', name: 'BNI', logo: 'https://upload.wikimedia.org/wikipedia/id/thumb/b/be/BNI_logo.svg/1200px-BNI_logo.svg.png' }
+                { id: 'bri', name: 'BRI', logo: 'https://cdn3.iconfinder.com/data/icons/banks-in-indonesia-logo-badge/100/BRI-512.png' },
+                { id: 'mandiri', name: 'Mandiri', logo: 'https://cdn3.iconfinder.com/data/icons/banks-in-indonesia-logo-badge/100/Mandiri-512.png' },
+                { id: 'bni', name: 'BNI', logo: 'https://cdn.kibrispdr.org/data/99/download-logo-bank-bni-11.png' }
             ];
 
             const vouchers = { 'SULTAN20': 0.20 };
@@ -809,12 +814,7 @@ const firebaseConfig = {
         <div class="bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-gray-700/50 shadow-lg p-6 w-full max-w-sm relative text-center">
             <h2 class="text-2xl font-bold text-white mb-4">Masuk</h2>
             <p class="text-gray-400 mb-6">Masuk untuk menyimpan riwayat pesanan Anda.</p>
-            <button id="googleSignInButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-full transition-colors duration-200 flex items-center justify-center space-x-2">
-                <i class="fab fa-google"></i>
-                <span>Masuk dengan Google</span>
             </button>
-            <p id="loginMessage" class="mt-4 text-sm text-yellow-400 hidden">
-                Login hanya tersedia di lingkungan nyata. Fitur ini tidak berfungsi di dalam pratinjau.
             </p>
             <div class="absolute top-4 right-4 text-white text-2xl cursor-pointer" id="closeLoginModal">&times;</div>
         </div>
@@ -852,6 +852,7 @@ const firebaseConfig = {
 
 </body>
 </html>
+
 
 
 
